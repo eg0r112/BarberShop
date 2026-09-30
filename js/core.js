@@ -186,10 +186,16 @@ async function api(path, { method = "GET", body, query } = {}) {
     const timer = setTimeout(() => ctrl.abort(), 20000);
     let res;
     try {
+      const headers = {
+        "Content-Type": "application/json",
+        // localtunnel interstitial bypass (harmless on other hosts)
+        "bypass-tunnel-reminder": "1",
+        ...(Net.token ? { Authorization: "Bearer " + Net.token } : {}),
+      };
       res = await fetch(url, {
         method,
         signal: ctrl.signal,
-        headers: { "Content-Type": "application/json", ...(Net.token ? { Authorization: "Bearer " + Net.token } : {}) },
+        headers,
         body: body !== undefined ? JSON.stringify(body) : undefined,
       });
     } catch (_) {
