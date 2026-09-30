@@ -1,7 +1,4 @@
-/* Адрес бэкенда. Для локального FastAPI оставьте пустым.
-   Для GitHub Pages укажите публичный HTTPS API, например:
-   apiBase: "https://xxxx.trycloudflare.com"
-*/
+/* Адрес бэкенда для GitHub Pages */
 window.AKVAREL_CONFIG = {
-  apiBase: "",
+  apiBase: "https://affecting-stands-advance-ana.trycloudflare.com",
 };
