@@ -4,24 +4,24 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
   <meta name="theme-color" content="#3d2416" />
-  <title>РђРєРІР°СЂРµР»СЊ</title>
-  <!-- config.js Р·Р°РґР°С‘С‚ Р°РґСЂРµСЃ API. РџСѓСЃС‚РѕР№ apiBase = С‚РѕС‚ Р¶Рµ С…РѕСЃС‚ (Р»РѕРєР°Р»СЊРЅС‹Р№ FastAPI). -->
-  <script src="js/config.js?v=14"></script>
-  <!-- prefetch.js СЃСЂР°Р·Сѓ РѕС‚РїСЂР°РІР»СЏРµС‚ РїРµСЂРІС‹Р№ Р·Р°РїСЂРѕСЃ Рє API вЂ” РїР°СЂР°Р»Р»РµР»СЊРЅРѕ СЃ Р·Р°РіСЂСѓР·РєРѕР№ СЃС‚РёР»РµР№ Рё СЃРєСЂРёРїС‚РѕРІ -->
-  <script src="js/prefetch.js?v=14"></script>
+  <title>Акварель</title>
+  <!-- config.js задаёт адрес API. Пустой apiBase = тот же хост (локальный FastAPI). -->
+  <script src="js/config.js?v=15"></script>
+  <!-- prefetch.js сразу отправляет первый запрос к API — параллельно с загрузкой стилей и скриптов -->
+  <script src="js/prefetch.js?v=15"></script>
   <link rel="preload" href="assets/fonts/manrope-cyrillic.woff2" as="font" type="font/woff2" crossorigin />
-  <link rel="stylesheet" href="css/app.css?v=14" />
+  <link rel="stylesheet" href="css/app.css?v=15" />
 </head>
 <body>
-  <!-- РЎС‚Р°С‚РёС‡РЅС‹Р№ СЌРєСЂР°РЅ Р·Р°РіСЂСѓР·РєРё: РІРёРґРµРЅ СЃСЂР°Р·Сѓ, РґРѕ Р·Р°РіСЂСѓР·РєРё СЃРєСЂРёРїС‚РѕРІ -->
-  <div id="app"><div class="screen"><div class="hero"><div class="brand">РђРєРІР°СЂРµР»СЊ</div></div>
+  <!-- Статичный экран загрузки: виден сразу, до загрузки скриптов -->
+  <div id="app"><div class="screen"><div class="hero"><div class="brand">Акварель</div></div>
     <div class="sk block"></div><div class="sk block"></div><div class="sk block"></div></div></div>
   <div id="sheet-root"></div>
   <div id="toast-root" aria-live="polite"></div>
-  <noscript>Р”Р»СЏ СЂР°Р±РѕС‚С‹ РїСЂРёР»РѕР¶РµРЅРёСЏ РЅСѓР¶РµРЅ JavaScript.</noscript>
-  <!-- SDK Telegram/MAX РїРѕРґРіСЂСѓР¶Р°РµС‚ bridge.js вЂ” С‚РѕР»СЊРєРѕ РЅСѓР¶РЅС‹Р№ Рё РїР°СЂР°Р»Р»РµР»СЊРЅРѕ СЃ Р·Р°РїСЂРѕСЃРѕРј Рє API -->
-  <script src="js/bridge.js?v=14"></script>
-  <script src="js/core.js?v=14"></script>
-  <script src="js/app.js?v=14"></script>
+  <noscript>Для работы приложения нужен JavaScript.</noscript>
+  <!-- SDK Telegram/MAX подгружает bridge.js — только нужный и параллельно с запросом к API -->
+  <script src="js/bridge.js?v=15"></script>
+  <script src="js/core.js?v=15"></script>
+  <script src="js/app.js?v=15"></script>
 </body>
 </html>

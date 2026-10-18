@@ -97,6 +97,51 @@ async function prefetched() {
   return data;
 }
 
+// ---- кэш первого экрана: при повторном открытии рисуем интерфейс сразу, не дожидаясь сети
+const BOOT_CACHE_V = 1;
+
+/** Ключ кэша по пользователю (id из initData, без запроса к серверу) — чужие данные не покажем. */
+function bootCacheKey() {
+  const body = (window.AKVAREL_BOOT && window.AKVAREL_BOOT.body) || authBody();
+  let id = "";
+  try {
+    const p = new URLSearchParams(Bridge.initData || "");
+    const u = p.get("user");
+    id = u ? String(JSON.parse(u).id || JSON.parse(u).user_id || "") : String(p.get("user_id") || "");
+  } catch (_) { /* нет initData */ }
+  if (!Bridge.platform) id = String(body.user_id || "");
+  return id ? `boot:${body.platform}:${id}` : "";
+}
+function readBootCache(key) {
+  if (!key) return null;
+  try {
+    const d = JSON.parse(store.get(key) || "null");
+    return d && d.v === BOOT_CACHE_V && d.me && d.shop && d.services ? d : null;
+  } catch (_) { return null; }
+}
+function writeBootCache(key, data) {
+  if (!key || !data || !data.me) return;
+  const { shop, me, services, masters } = data;
+  store.set(key, JSON.stringify({ v: BOOT_CACHE_V, shop, me, services, masters, at: Date.now() }));
+}
+
+/** Стартовый экран по роли и hash (#/mine, #/sched, #/book). */
+function routeInitial({ fetchLists }) {
+  const h = location.hash.replace(/^#\/?/, "");
+  if (isStaff()) {
+    S.route = h === "sched" ? "sched" : "staff";
+    if (!S.staff.day) S.staff.day = today();
+    render();
+    if (S.route === "sched") loadSched();
+    else if (fetchLists && !S.staff.items) loadStaffDay();
+  } else {
+    S.route = h === "mine" ? "mine" : "home";
+    render();
+    if (fetchLists && !S.mine.items) loadMine();
+    if (h === "book") startBooking({});
+  }
+}
+
 async function boot() {
   // Первый запрос уже ушёл из <head> (prefetch.js) — initData известен из URL, SDK грузится параллельно.
   const pre = window.AKVAREL_BOOT;
@@ -104,8 +149,20 @@ async function boot() {
   let req = pre && pre.promise
     ? prefetched().then((d) => d || api("/api/bootstrap", { method: "POST", body: sent }))
     : api("/api/bootstrap", { method: "POST", body: sent });
+
+  // Повторное открытие: показываем интерфейс из кэша мгновенно, списки подъедут с ответом сервера
+  const cacheKey = bootCacheKey();
+  const cached = readBootCache(cacheKey);
+  let fromCache = false;
+  if (cached && !cached.me.is_blocked && !cached.me.needs_name) {
+    applyBootstrap({ ...cached, mine: null, staff_day: null });
+    fromCache = true;
+    routeInitial({ fetchLists: false });
+  }
+
   await Bridge.ready;
   Bridge.init();
+  if (fromCache) syncChrome();
   const now = authBody();
   if (now.init_data !== sent.init_data || now.platform !== sent.platform) {
     // SDK дал другой initData, чем мы прочитали из URL — перезапрашиваем с ним
@@ -117,10 +174,14 @@ async function boot() {
   try {
     data = await req;
   } catch (e) {
-    S.fatal = e;
+    if (!fromCache) { S.fatal = e; render(); return; }
+    // Интерфейс уже показан из кэша — покажем ошибку в списках, не роняя экран
+    S.mine.loading = false; S.mine.error = e.message;
+    S.staff.loading = false; S.staff.error = e.message;
     render();
     return;
   }
+  writeBootCache(cacheKey, data);
   applyBootstrap(data);
 
   if (S.me.is_blocked && !isStaff()) {
@@ -139,19 +200,14 @@ async function boot() {
     try { await loadCatalog(true); } catch (e) { S.fatal = e; render(); return; }
   }
 
-  const h = location.hash.replace(/^#\/?/, "");
-  if (isStaff()) {
-    S.route = h === "sched" ? "sched" : "staff";
-    if (!S.staff.day) S.staff.day = today();
-    render();
-    if (S.route === "sched") loadSched();
-    else if (!S.staff.items) loadStaffDay();
-  } else {
-    S.route = h === "mine" ? "mine" : "home";
-    render();
-    if (!S.mine.items) loadMine();
-    if (h === "book") startBooking({});
+  if (fromCache) {
+    // Роль могла поменяться (/role в боте) — тогда экран другой; иначе просто обновляем данные
+    const staffScreen = S.route === "staff" || S.route === "sched";
+    if (isStaff() !== staffScreen) { S.book = null; routeInitial({ fetchLists: true }); return; }
+    if (S.route !== "book") render();
+    return;
   }
+  routeInitial({ fetchLists: true });
 }
 
 // =====================================================================
@@ -327,9 +383,9 @@ function homeView() {
       ${shop.phone ? html`<a href="${telHref(shop.phone)}">${icon("phone", "sm")}${shop.phone}</a>` : ""}</div>` : ""}
   </div>`;
 
-  let body;
-  if (S.mine.loading && !S.mine.items) body = skeleton(2);
-  else body = html`
+  const listLoading = S.mine.loading && !S.mine.items;
+  const body = html`
+    ${listLoading ? html`<div class="sk block" style="height:120px"></div>` : ""}
     ${up.length ? html`
       <div class="section-title"><span>Ближайшая запись</span>${up.length > 1 ? html`<button class="linkbtn" data-act="tab" data-r="mine">Все (${up.length})</button>` : ""}</div>
       ${bookingCard(up[0], { next: true })}` : ""}
@@ -990,6 +1046,7 @@ const actions = {
         Net.token = res.token;
         S.me = res;
         store.set("name", res.full_name || name);
+        writeBootCache(bootCacheKey(), { shop: S.shop, me: S.me, services: S.services, masters: S.masters });
         Bridge.haptic("success");
         if (!S.services.length) await loadCatalog(true);
         S.route = "home";
@@ -1032,6 +1089,7 @@ const actions = {
         Net.token = res.token;
         S.me = res;
         store.set("name", res.full_name || name);
+        writeBootCache(bootCacheKey(), { shop: S.shop, me: S.me, services: S.services, masters: S.masters });
         if (S.book) S.book.name = res.full_name || name;
         Sheets.close(S.profileSheet);
         Bridge.haptic("success");
