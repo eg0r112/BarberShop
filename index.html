@@ -5,20 +5,31 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
   <meta name="theme-color" content="#3d2416" />
   <title>Акварель</title>
+  <!-- config.js задаёт адрес API. Пустой apiBase = тот же хост (локальный FastAPI). -->
+  <script src="js/config.js?v=10"></script>
+  <script>
+    // Заранее открываем соединение с API (TLS-рукопожатие идёт параллельно с загрузкой страницы)
+    (function () {
+      var c = window.AKVAREL_CONFIG, b = c && c.apiBase;
+      if (!b) return;
+      var l = document.createElement("link");
+      l.rel = "preconnect"; l.href = b; l.crossOrigin = "anonymous";
+      document.head.appendChild(l);
+    })();
+  </script>
   <link rel="preload" href="assets/fonts/manrope-cyrillic.woff2" as="font" type="font/woff2" crossorigin />
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <script src="https://st.max.ru/js/max-web-app.js"></script>
-  <link rel="stylesheet" href="css/app.css?v=5" />
+  <link rel="stylesheet" href="css/app.css?v=10" />
 </head>
 <body>
-  <div id="app"></div>
+  <!-- Статичный экран загрузки: виден сразу, до загрузки скриптов -->
+  <div id="app"><div class="screen"><div class="hero"><div class="brand">Акварель</div></div>
+    <div class="sk block"></div><div class="sk block"></div><div class="sk block"></div></div></div>
   <div id="sheet-root"></div>
   <div id="toast-root" aria-live="polite"></div>
   <noscript>Для работы приложения нужен JavaScript.</noscript>
-  <!-- config.js задаёт адрес API. Пустой apiBase = тот же хост (локальный FastAPI). -->
-  <script src="js/config.js?v=9"></script>
-  <script src="js/bridge.js?v=9"></script>
-  <script src="js/core.js?v=9"></script>
-  <script src="js/app.js?v=9"></script>
+  <!-- SDK Telegram/MAX подгружает bridge.js — только нужный и параллельно с запросом к API -->
+  <script src="js/bridge.js?v=10"></script>
+  <script src="js/core.js?v=10"></script>
+  <script src="js/app.js?v=10"></script>
 </body>
 </html>

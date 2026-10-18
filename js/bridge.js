@@ -1,30 +1,92 @@
-/* Единый мост для Telegram WebApp и MAX WebApp. Без зависимостей от приложения. */
+/* Единый мост для Telegram WebApp и MAX WebApp. Без зависимостей от приложения.
+
+   Платформа и initData определяются сразу по URL (#tgWebAppData / #WebAppData),
+   а SDK нужной платформы подгружается лениво — параллельно с первым запросом к API.
+   Так приложение не ждёт 120 КБ скрипта Telegram (и не грузит лишний SDK MAX). */
 window.Bridge = (function () {
-  const tg = window.Telegram && window.Telegram.WebApp;
-  const mx = window.WebApp;
-
-  function platform() {
-    if (tg && tg.initData) return "telegram";
-    if (mx && mx.initData) return "max";
-    return null; // обычный браузер (проверка в DEV_MODE)
-  }
-
-  const p = platform();
-  const native = p === "telegram" ? tg : p === "max" ? mx : null;
+  const SDK = {
+    telegram: "https://telegram.org/js/telegram-web-app.js",
+    max: "https://st.max.ru/js/max-web-app.js",
+  };
+  const SDK_TIMEOUT = 7000;
 
   function safe(fn) {
     try { return fn(); } catch (_) { return undefined; }
   }
+  function hashParam(name) {
+    const h = location.hash.replace(/^#/, "");
+    for (const part of h.split("&")) {
+      const i = part.indexOf("=");
+      if (i > 0 && part.slice(0, i) === name) {
+        const v = part.slice(i + 1);
+        try { return decodeURIComponent(v); } catch (_) { return v; }
+      }
+    }
+    return "";
+  }
+  const ss = (key) => safe(() => sessionStorage.getItem(key)) || "";
+
+  /** Определяем платформу до загрузки SDK: по hash или по sessionStorage (после перезагрузки). */
+  function detect() {
+    let d = hashParam("tgWebAppData");
+    if (!d) d = safe(() => JSON.parse(ss("__telegram__initParams") || "{}").tgWebAppData) || "";
+    if (d) return { platform: "telegram", initData: d };
+    d = hashParam("WebAppData") || ss("WebAppData");
+    if (d) return { platform: "max", initData: d };
+    return { platform: null, initData: "" }; // обычный браузер (проверка в DEV_MODE)
+  }
+
+  const det = detect();
+  let native = null;
+
+  function pick() {
+    const tg = window.Telegram && window.Telegram.WebApp;
+    const mx = window.WebApp;
+    if (det.platform === "telegram" && tg) return tg;
+    if (det.platform === "max" && mx) return mx;
+    if (tg && tg.initData) { det.platform = "telegram"; return tg; }
+    if (mx && mx.initData) { det.platform = "max"; return mx; }
+    return null;
+  }
+
+  function loadSdk(url) {
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = () => { if (!done) { done = true; clearTimeout(timer); resolve(); } };
+      const s = document.createElement("script");
+      s.src = url;
+      s.async = true;
+      s.onload = finish;
+      s.onerror = finish;
+      const timer = setTimeout(finish, SDK_TIMEOUT);
+      document.head.appendChild(s);
+    });
+  }
+
+  const ready = (det.platform ? loadSdk(SDK[det.platform]) : Promise.resolve()).then(() => {
+    native = pick();
+    if (native && native.initData) det.initData = native.initData;
+  });
+
+  // ---- нативная кнопка «назад»
+  let backHandler = null;
+  let backBound = false;
+  const backBtn = () => native && native.BackButton;
+  const hasNativeBack = () => !!(backBtn() && typeof backBtn().onClick === "function");
 
   function init() {
     if (!native) return;
     safe(() => native.ready());
     safe(() => native.expand && native.expand());
-    if (p === "telegram") {
-      safe(() => tg.setHeaderColor && tg.setHeaderColor("#3d2416"));
-      safe(() => tg.setBackgroundColor && tg.setBackgroundColor("#f6f0e8"));
-      safe(() => tg.setBottomBarColor && tg.setBottomBarColor("#ffffff"));
-      safe(() => tg.disableVerticalSwipes && tg.disableVerticalSwipes());
+    if (det.platform === "telegram") {
+      safe(() => native.setHeaderColor && native.setHeaderColor("#3d2416"));
+      safe(() => native.setBackgroundColor && native.setBackgroundColor("#f6f0e8"));
+      safe(() => native.setBottomBarColor && native.setBottomBarColor("#ffffff"));
+      safe(() => native.disableVerticalSwipes && native.disableVerticalSwipes());
+    }
+    if (hasNativeBack() && !backBound) {
+      backBound = true;
+      safe(() => backBtn().onClick(() => backHandler && backHandler()));
     }
   }
 
@@ -38,17 +100,10 @@ window.Bridge = (function () {
     };
   }
 
-  // ---- нативная кнопка «назад»
-  let backHandler = null;
-  const backBtn = native && native.BackButton;
-  const hasNativeBack = !!(backBtn && typeof backBtn.onClick === "function");
-  if (hasNativeBack) {
-    safe(() => backBtn.onClick(() => backHandler && backHandler()));
-  }
   function setBack(handler) {
     backHandler = handler || null;
-    if (!hasNativeBack) return;
-    safe(() => (handler ? backBtn.show() : backBtn.hide()));
+    if (!hasNativeBack()) return;
+    safe(() => (handler ? backBtn().show() : backBtn().hide()));
   }
 
   function confirmClose(on) {
@@ -74,11 +129,12 @@ window.Bridge = (function () {
   function close() { safe(() => native && native.close()); }
 
   return {
-    platform: p,
+    get platform() { return det.platform; },
+    get initData() { return det.initData; },
+    get hasNativeBack() { return hasNativeBack(); },
+    ready,
     init,
     user,
-    initData: native ? native.initData || "" : "",
-    hasNativeBack,
     setBack,
     confirmClose,
     haptic,

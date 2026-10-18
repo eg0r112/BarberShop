@@ -37,7 +37,7 @@ const STATUS_TEXT = {
 // =====================================================================
 // Запуск и авторизация
 // =====================================================================
-async function authenticate() {
+function authBody() {
   const body = { platform: Bridge.platform || "telegram", init_data: Bridge.initData };
   if (!Bridge.platform) {
     // Только для DEV_MODE: проверка в обычном браузере
@@ -49,7 +49,11 @@ async function authenticate() {
     else if (q.get("name")) body.full_name = q.get("name");
     if (q.get("platform") === "max") body.platform = "max";
   }
-  const res = await api("/api/auth", { method: "POST", body });
+  return body;
+}
+
+async function authenticate() {
+  const res = await api("/api/auth", { method: "POST", body: authBody() });
   Net.token = res.token;
   S.me = res;
 }
@@ -63,20 +67,47 @@ async function loadCatalog(force = false) {
   S.catalogAt = Date.now();
 }
 
+/** Применяет ответ /api/bootstrap: салон, профиль, каталог и стартовые данные экрана. */
+function applyBootstrap(data) {
+  S.shop = data.shop;
+  TZ = S.shop.timezone;
+  Net.token = data.me.token;
+  S.me = data.me;
+  if (data.services && data.services.length) {
+    S.services = data.services;
+    S.masters = data.masters || [];
+    S.catalogAt = Date.now();
+  }
+  if (Array.isArray(data.mine)) {
+    S.mine.items = data.mine; S.mine.loading = false; S.mine.error = null;
+  }
+  if (data.staff_day) applyStaffDay(data.staff_day);
+}
+
 async function boot() {
+  // Запрос к API уходит сразу — initData уже известен из URL, SDK платформы грузится параллельно.
+  const sent = authBody();
+  let req = api("/api/bootstrap", { method: "POST", body: sent });
+  await Bridge.ready;
   Bridge.init();
-  $("#app").innerHTML = str(loadingScreen());
+  const now = authBody();
+  if (now.init_data !== sent.init_data || now.platform !== sent.platform) {
+    // SDK дал другой initData, чем мы прочитали из URL — перезапрашиваем с ним
+    req.catch(() => {});
+    req = api("/api/bootstrap", { method: "POST", body: now });
+  }
+
+  let data;
   try {
-    S.shop = await api("/api/shop");
-    TZ = S.shop.timezone;
-    await authenticate();
+    data = await req;
   } catch (e) {
     S.fatal = e;
     render();
     return;
   }
+  applyBootstrap(data);
 
-  if (S.me.is_blocked) {
+  if (S.me.is_blocked && !isStaff()) {
     S.route = "blocked";
     render();
     return;
@@ -88,25 +119,21 @@ async function boot() {
     render();
     return;
   }
-
-  try {
-    await loadCatalog(true);
-  } catch (e) {
-    S.fatal = e;
-    render();
-    return;
+  if (!S.services.length) {
+    try { await loadCatalog(true); } catch (e) { S.fatal = e; render(); return; }
   }
 
   const h = location.hash.replace(/^#\/?/, "");
   if (isStaff()) {
     S.route = h === "sched" ? "sched" : "staff";
-    S.staff.day = today();
+    if (!S.staff.day) S.staff.day = today();
     render();
-    if (S.route === "sched") loadSched(); else loadStaffDay();
+    if (S.route === "sched") loadSched();
+    else if (!S.staff.items) loadStaffDay();
   } else {
     S.route = h === "mine" ? "mine" : "home";
     render();
-    loadMine();
+    if (!S.mine.items) loadMine();
     if (h === "book") startBooking({});
   }
 }
@@ -530,7 +557,7 @@ function stepMaster(b) {
           <span class="avatar any">${icon("user")}</span>
           <span class="grow"><div class="title">Любой мастер</div><div class="sub">Ближайшее: ${nextLabel(any)}</div></span>${icon("chevR", "chev")}</button>
         ${items.map(({ m, at }) => html`
-          <button class="item ${at ? "" : "disabled"}" data-act="b-master" data-id="${m.id}">
+          <button class="item ${at ? "" : "disabled"}" data-act="b-master" data-id="${m.id}" ${at ? "" : "disabled"}>
             <span class="avatar">${(m.name || "?")[0]}</span>
             <span class="grow"><div class="title">${m.name}</div>
               <div class="sub">${m.title ? m.title + " · " : ""}${at ? "ближайшее: " + nextLabel(at) : "нет мест в ближайшие дни"}</div></span>${icon("chevR", "chev")}</button>`)}
@@ -580,7 +607,7 @@ function stepTime(b) {
     return html`${parts}`;
   }
 
-  parts.push(html`<div class="month">${MONTH_YEAR.format(plain(b.day))}</div>
+  parts.push(html`<div class="month">${monthTitle(b.day)}</div>
     <div class="days">${b.days.map((d) => dayBtn(d.day, { active: d.day === b.day, free: d.free, act: "b-day", today: t }))}</div>`);
 
   if (b.slotsLoading || (!b.slots && !b.slotsError)) parts.push(skeleton(2));
@@ -664,23 +691,30 @@ function successView() {
 // =====================================================================
 function staffMasters() { return S.staff.masterId ? [masterById(S.staff.masterId)].filter(Boolean) : S.masters; }
 
+/** Кладёт ответ /api/staff/day-full в состояние. Возвращает true, если данные изменились. */
+function applyStaffDay(data) {
+  const st = S.staff;
+  const av = {};
+  Object.values(data.availability || {}).forEach((a) => (av[a.master_id] = a));
+  const sig = JSON.stringify([data.items, av, data.day, data.master_id || null]);
+  const changed = sig !== st.sig;
+  st.day = data.day;
+  st.masterId = data.master_id || null;
+  st.items = data.items; st.av = av; st.sig = sig; st.loading = false; st.error = null;
+  return changed;
+}
+
 async function loadStaffDay({ silent = false } = {}) {
   const st = S.staff;
   if (!st.day) st.day = today();
   const req = ++st.req;
   if (!silent) { st.loading = true; st.error = null; if (S.route === "staff") render(); }
   try {
-    const masters = st.masterId ? [st.masterId] : S.masters.map((m) => m.id);
-    const [items, ...avs] = await Promise.all([
-      api("/api/staff/day", { query: { day: st.day, master_id: st.masterId } }),
-      ...masters.map((id) => api("/api/staff/availability", { query: { master_id: id, day: st.day } })),
-    ]);
+    // Записи дня + доступность всех мастеров — одним запросом
+    const data = await api("/api/staff/day-full", { query: { day: st.day, master_id: st.masterId } });
     if (req !== st.req) return;
-    const av = {};
-    avs.forEach((a) => (av[a.master_id] = a));
-    const sig = JSON.stringify([items, av, st.day, st.masterId]);
-    const changed = sig !== st.sig;
-    st.items = items; st.av = av; st.sig = sig; st.loading = false; st.error = null;
+    if (data.day !== st.day || (data.master_id || null) !== (st.masterId || null)) return;
+    const changed = applyStaffDay(data);
     if (!changed && silent) return;
   } catch (e) {
     if (req !== st.req) return;
@@ -733,7 +767,7 @@ function staffTimeline() {
 
   return html`
     <div class="summary"><div class="box"><b>${items.length}</b><span>${plural(items.length, "запись", "записи", "записей")}</span></div>
-      <div class="box"><b>${money(sum)}</b><span>на сумму</span></div></div>
+      <div class="box"><b>${sum ? money(sum) : "0\u00A0₽"}</b><span>на сумму</span></div></div>
     ${banners.map(({ m, av }) => html`<div class="offbanner">${icon("moon", "sm")}<span>${m.name} — выходной${av.reason ? ` (${av.reason})` : av.weekly_off ? " по графику" : ""}</span></div>`)}
     ${rows.length ? rows.map((r) => r.kind ? html`
       <div class="tl"><div class="time">${r.t}<small>${duration(r.b.duration_minutes)}</small></div><div class="body">${staffCard(r.b, showMaster)}</div></div>` : html`
@@ -808,7 +842,7 @@ function schedView() {
   else body = schedBody(master);
   return html`<div class="screen">${topbar("График работы")}
     <div class="chips">${S.masters.map((m) => html`<button class="chip ${sc.masterId === m.id ? "active" : ""}" data-act="sched-master" data-id="${m.id}">${m.name}</button>`)}</div>
-    <div class="month">${MONTH_YEAR.format(plain(sc.day))}</div>
+    <div class="month">${monthTitle(sc.day)}</div>
     <div class="days">${days.map((d) => dayBtn(d, { active: d === sc.day, act: "sched-day", today: t }))}</div>
     ${body}</div>${tabbar()}`;
 }
@@ -941,7 +975,7 @@ const actions = {
         S.me = res;
         store.set("name", res.full_name || name);
         Bridge.haptic("success");
-        await loadCatalog(true);
+        if (!S.services.length) await loadCatalog(true);
         S.route = "home";
         render();
         loadMine();

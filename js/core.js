@@ -103,6 +103,8 @@ function whenText(iso, today) {
   return `${cap(WD_SHORT.format(plain(ymd)))}, ${DAY_MON_SHORT.format(plain(ymd))}, ${t}`;
 }
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
+/** «Октябрь 2026» (без «г.», которое даёт Intl) */
+const monthTitle = (ymd) => cap(MONTH_YEAR.format(plain(ymd)).replace(/\s*г\.?$/i, ""));
 const money = (n) => (n === 0 ? "Бесплатно" : `${Number(n).toLocaleString("ru-RU")}\u00A0₽`);
 function duration(min) {
   const h = Math.floor(min / 60), m = min % 60;
