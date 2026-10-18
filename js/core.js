@@ -190,10 +190,10 @@ async function api(path, { method = "GET", body, query } = {}) {
     try {
       const headers = {
         "Content-Type": "application/json",
-        // localtunnel interstitial bypass (harmless on other hosts)
-        "bypass-tunnel-reminder": "1",
         ...(Net.token ? { Authorization: "Bearer " + Net.token } : {}),
       };
+      // localtunnel без этого заголовка отдаёт страницу-заглушку вместо API
+      if (/loca\.lt$/i.test(apiBase())) headers["bypass-tunnel-reminder"] = "1";
       res = await fetch(url, {
         method,
         signal: ctrl.signal,

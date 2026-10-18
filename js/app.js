@@ -84,10 +84,26 @@ function applyBootstrap(data) {
   if (data.staff_day) applyStaffDay(data.staff_day);
 }
 
+/** Ответ раннего запроса из prefetch.js → данные (или ошибка в формате ApiError). */
+async function prefetched() {
+  const pre = window.AKVAREL_BOOT;
+  if (!pre || !pre.promise) return null;
+  let res;
+  try { res = await pre.promise; } catch (_) { return null; } // сеть/таймаут — повторим обычным путём
+  let data = null;
+  try { data = await res.json(); } catch (_) { /* не JSON */ }
+  if (!res.ok) throw normalizeError(res.status, data);
+  if (!data || !data.me) return null;
+  return data;
+}
+
 async function boot() {
-  // Запрос к API уходит сразу — initData уже известен из URL, SDK платформы грузится параллельно.
-  const sent = authBody();
-  let req = api("/api/bootstrap", { method: "POST", body: sent });
+  // Первый запрос уже ушёл из <head> (prefetch.js) — initData известен из URL, SDK грузится параллельно.
+  const pre = window.AKVAREL_BOOT;
+  const sent = pre && pre.body ? pre.body : authBody();
+  let req = pre && pre.promise
+    ? prefetched().then((d) => d || api("/api/bootstrap", { method: "POST", body: sent }))
+    : api("/api/bootstrap", { method: "POST", body: sent });
   await Bridge.ready;
   Bridge.init();
   const now = authBody();

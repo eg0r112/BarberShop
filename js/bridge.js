@@ -36,7 +36,9 @@ window.Bridge = (function () {
     return { platform: null, initData: "" }; // обычный браузер (проверка в DEV_MODE)
   }
 
-  const det = detect();
+  // prefetch.js уже определил платформу (и отправил первый запрос) — используем тот же результат
+  const pre = window.AKVAREL_BOOT;
+  const det = pre && pre.platform !== undefined ? { platform: pre.platform, initData: pre.initData || "" } : detect();
   let native = null;
 
   function pick() {
