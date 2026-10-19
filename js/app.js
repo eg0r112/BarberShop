@@ -127,7 +127,7 @@ function writeBootCache(key, data) {
 
 /** Стартовый экран по роли и hash (#/mine, #/sched, #/book). */
 function routeInitial({ fetchLists }) {
-  const h = location.hash.replace(/^#\/?/, "");
+  const h = Bridge.hashPath();
   if (isStaff()) {
     S.route = h === "sched" ? "sched" : "staff";
     if (!S.staff.day) S.staff.day = today();
